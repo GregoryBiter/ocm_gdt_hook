@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="utf-8"?>
+<modification>
+    <name>Global Registry Access</name>
+    <code>global_registry_access</code>
+    <version>1.0</version>
+    <author>Your Name</author>
+    <link>https://yourwebsite.com</link>
+    <file path="system/engine/registry.php">
+
+        <operation>
+            <search><![CDATA[final class Registry {]]></search>
+            <add position="before"><![CDATA[
+}
+if (is_file(DIR_SYSTEM . 'library/gbitstudio/gdt/engine/hook.php')) {
+    require_once(DIR_SYSTEM . 'library/gbitstudio/gdt/engine/hook.php');
+}
+if (is_file(DIR_SYSTEM . 'library/gbitstudio/gdt/engine/hookcontroller.php')) {
+    require_once(DIR_SYSTEM . 'library/gbitstudio/gdt/engine/hookcontroller.php');
+}
+            ]]>            </add>
+        </operation>
+
+    </file>
+
+
+    <!-- <file path="admin/controller/startup/router.php">
+        <operation>
+            <search><![CDATA[public function index() {]]></search>
+<add position="after"><![CDATA[
+        // роутинг
+        $routeGDT = new \Gbitstudio\GDT\Engine\Route($this->registry);
+        $routeGDT->router();
+            ]]></add>
+</operation>
+</file> -->
+
+    <file path="admin/controller/extension/extension/module.php">
+        <operation>
+            <search><![CDATA[if (!is_file(DIR_APPLICATION . 'controller/extension/module/' . $value . '.php')]]></search>
+            <add position="after"><![CDATA[
+            //OCMOD GDT Hook - Проверяем хуки только в admin/controller/hook/
+            $admin_hook_file = DIR_APPLICATION . 'controller/hook/' . $value . '.php';
+            if(is_file($admin_hook_file)) {
+                break;
+            }
+            //OCMOD GDT Hook
+            ]]>            </add>
+        </operation>
+        <operation>
+            <search><![CDATA[if (!is_file(DIR_APPLICATION . 'controller/extension/module/' . $value . '.php')]]></search>
+            <add position="before"><![CDATA[
+            //OCMOD GDT Hook
+            require_once(DIR_SYSTEM . 'library/gbitstudio/gdt/engine/hookmetaparser.php');
+            $hook_list = [];
+            //OCMOD GDT Hook
+            ]]>            </add>
+        </operation>
+        <operation>
+            <search><![CDATA[$data['extensions'] = array();]]></search>
+            <add position="before"><![CDATA[
+        //OCMOD GDT Hook
+        // Получаем список всех существующих контроллеров модулей
+        $existing_controllers = [];
+        $controller_files = glob(DIR_APPLICATION . 'controller/extension/module/*.php');
+        if ($controller_files) {
+            foreach ($controller_files as $file) {
+                $existing_controllers[] = basename($file, '.php');
+            }
+        }
+        
+        // Добавляем старые контроллеры модулей
+        $old_controller_files = glob(DIR_APPLICATION . 'controller/module/*.php');
+        if ($old_controller_files) {
+            foreach ($old_controller_files as $file) {
+                $existing_controllers[] = basename($file, '.php');
+            }
+        }
+    
+        // Сканируем только хуки в admin/controller/hook/ (не каталог)
+        $admin_hook_files = glob(DIR_APPLICATION . 'controller/hook/*.php');
+        $hook_list = [];
+        
+        if ($admin_hook_files) {
+            foreach ($admin_hook_files as $hook_file) {
+                $hook_code = basename($hook_file, '.php');
+                
+                // Проверяем, есть ли уже контроллер для этого модуля
+                if (in_array($hook_code, $existing_controllers)) {
+                    continue; // Пропускаем хук, если есть контроллер
+                }
+                
+                $hook_meta = \GbitStudio\GDT\Engine\HookMetaParser::parseHookMeta($hook_file);
+                
+                if ($hook_meta) {
+                    // Проверяем, не скрыт ли хук
+                    $is_hidden = isset($hook_meta['hidden']) && 
+                                (bool)$hook_meta['hidden'] === true || 
+                                (is_string($hook_meta['hidden']) && in_array(strtolower($hook_meta['hidden']), ['true', '1', 'yes', 'on']));
+                    
+                    if (!$is_hidden) {
+                        $hook_list[] = array(
+                            'code' => $hook_code,
+                            'name' => isset($hook_meta['name']) ? $hook_meta['name'] : $hook_code,
+                            'description' => isset($hook_meta['description']) ? $hook_meta['description'] : '',
+                            'version' => isset($hook_meta['version']) ? $hook_meta['version'] : '1.0',
+                            'author' => isset($hook_meta['author']) ? $hook_meta['author'] : '',
+                            'controller' => isset($hook_meta['controller']) ? $hook_meta['controller'] : '',
+                            'file_path' => $hook_file,
+                            'context' => 'admin',
+                            'meta' => $hook_meta,
+                            'installed' => in_array($hook_code, $extensions)
+                        );
+                    }
+                }
+            }
+        }
+        //OCMOD GDT Hook
+            ]]>            </add>
+        </operation>
+
+        <operation>
+            <search><![CDATA[$sort_order = array();]]></search>
+            <add position="before"><![CDATA[
+	//OCMOD GDT Hook
+    // Добавляем только админские хуки как модули в список расширений
+    foreach ($hook_list as $hook_data) {
+        $hook_name = $hook_data['name'] . ' (Hook)';
+        
+        $data['extensions'][] = array(
+            'name'      => $hook_name,
+            'status'    => $hook_data['installed'] ? ($this->config->get('module_' . $hook_data['code'] . '_status') ? $this->language->get('text_enabled') : $this->language->get('text_disabled')) : $this->language->get('text_disabled'),
+            'module'    => array(), // Для хуков нет модулей
+            'install'   => $this->url->link('extension/extension/module/install', 'user_token=' . $this->session->data['user_token'] . '&extension=' . $hook_data['code'], true),
+            'uninstall' => $this->url->link('extension/extension/module/uninstall', 'user_token=' . $this->session->data['user_token'] . '&extension=' . $hook_data['code'], true),
+            'installed' => $hook_data['installed'],
+            'edit'      => ($hook_data['installed'] && !empty($hook_data['controller'])) ? $this->url->link($hook_data['controller'], 'user_token=' . $this->session->data['user_token'], true) : '',
+        );
+    }
+    //OCMOD GDT Hook
+            ]]>            </add>
+        </operation>
+    </file>
+    <!-- ########################################################################### -->
+
+    <!-- Загружаем хуки GDT -->
+    <file path="admin/controller/startup/startup.php">
+        <operation>
+            <search><![CDATA[public function index() {]]></search>
+            <add position="after"><![CDATA[
+        // Инициализация GDT Framework и загрузка хуков из admin/controller/hook/
+        try {
+            require_once(DIR_SYSTEM . 'library/gbitstudio/gdt/engine/hook.php');
+            
+            \GbitStudio\GDT\Engine\Hook::load();
+        } catch (Exception $e) {
+            // Логируем ошибку, но не прерываем выполнение
+            error_log('GDT Framework init error: ' . $e->getMessage());
+        }
+            ]]>            </add>
+        </operation>
+    </file>
+    <!-- ########################################################################### -->
+
+    <file path="admin/controller/common/column_left.php">
+        <operation>
+            <search><![CDATA[// Stats]]></search>
+            <add position="before"><![CDATA[
+            //OCMOD GTB Hook
+            $data['menus'] = \GbitStudio\GDT\Engine\Hook::apply_filters('common_column_left_menus', $data['menus'], $this);
+            //OCMOD GTB Hook
+
+            ]]>            </add>
+        </operation>
+    </file>
+
+    <file path="system/engine/event.php">
+        <operation>
+            <search><![CDATA[foreach ($this->data as $value) {]]></search>
+            <add position="before"><![CDATA[
+        //OCMOD GTB Hook
+        $args = \GbitStudio\GDT\Engine\Hook::apply_filters('oct_before_' . $event, $args);
+        //OCMOD GTB Hook
+
+            ]]>            </add>
+        </operation>
+
+        <operation>
+            <search><![CDATA[$result = $value['action']->execute($this->registry, $args);]]></search>
+            <add position="after"><![CDATA[
+        //OCMOD GTB Hook
+        $args = \GbitStudio\GDT\Engine\Hook::apply_filters('oct_after_' . $event, $args);
+        //OCMOD GTB Hook
+
+            ]]>            </add>
+        </operation>
+
+    </file>
+
+
+    <!-- add_route -->
+    <file path="admin/controller/startup/router.php">
+        <operation>
+            <search><![CDATA[public function index() {]]></search>
+            <add position="after"><![CDATA[
+        // Инициализация глобального реестра
+        //Hook::load();
+        
+        // Добавляем маршруты из хуков
+        //Hook::add_routes();
+            ]]>            </add>
+        </operation>
+    </file>
+
+    <!-- Обработка установки и удаления хуков -->
+    <file path="admin/controller/extension/extension/module.php">
+        <operation>
+            <search><![CDATA[public function install() {]]></search>
+            <add position="after"><![CDATA[
+        //OCMOD GDT Hook - Обработка установки админских хуков
+        $extension = $this->request->get['extension'];
+        
+        // Проверяем, является ли это админским хуком
+        $admin_hook_file = DIR_APPLICATION . 'controller/hook/' . $extension . '.php';
+        
+        if (is_file($admin_hook_file)) {
+            // Это админский хук, обрабатываем как модуль
+            $this->load->model('setting/extension');
+            $this->model_setting_extension->install('module', $extension);
+            
+            // Устанавливаем статус по умолчанию
+            $this->load->model('setting/setting');
+            $this->model_setting_setting->editSetting('module_' . $extension, [
+                'module_' . $extension . '_status' => 1
+            ]);
+            
+            $this->session->data['success'] = $this->language->get('text_success');
+            $this->response->redirect($this->url->link('extension/extension/module', 'user_token=' . $this->session->data['user_token'] . '&type=module', true));
+            return;
+        }
+        //OCMOD GDT Hook
+            ]]>            </add>
+        </operation>
+        
+        <operation>
+            <search><![CDATA[public function uninstall() {]]></search>
+            <add position="after"><![CDATA[
+        //OCMOD GDT Hook - Обработка удаления админских хуков
+        $extension = $this->request->get['extension'];
+        
+        // Проверяем, является ли это админским хуком
+        $admin_hook_file = DIR_APPLICATION . 'controller/hook/' . $extension . '.php';
+        
+        if (is_file($admin_hook_file)) {
+            // Это админский хук, обрабатываем как модуль
+            $this->load->model('setting/extension');
+            $this->model_setting_extension->uninstall('module', $extension);
+            
+            // Удаляем настройки
+            $this->load->model('setting/setting');
+            $this->model_setting_setting->deleteSetting('module_' . $extension);
+            
+            $this->session->data['success'] = $this->language->get('text_success');
+            $this->response->redirect($this->url->link('extension/extension/module', 'user_token=' . $this->session->data['user_token'] . '&type=module', true));
+            return;
+        }
+        //OCMOD GDT Hook
+            ]]>            </add>
+        </operation>
+    </file>
+</modification>
