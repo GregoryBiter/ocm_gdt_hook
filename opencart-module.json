@@ -1,5 +1,6 @@
 {
     "files": [
+        "admin/controller/extension/module/example_hook.php",
         "catalog/controller/extension/module/example_hook.php",
         "system/gdt_hook.ocmod.xml",
         "system/library/gbitstudio/gdt/engine/hook.php",

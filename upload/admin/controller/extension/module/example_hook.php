@@ -19,17 +19,6 @@ class ControllerExtensionModuleExampleHook extends Controller {
      * - Додавання глобальних методів
      */
     public function hook_boot() {
-        Hook::register_event('model/catalog/product/getProduct/after', 'extension/module/example_hook/event1', 10);
-        // hook::register_event('model/catalog/product/getProduct/before', 'extension/module/example_hook/event1', 10);
-     
-    }
 
-    public function event1($args, &$output = null, &$data = null) {
-        // Ваш код для обробки події catalog_model_catalog_product_getProduct_after
-        
-        $data['name'] = $data['name'] .' Modified Product Name';
     }
-
-    
-  
 }

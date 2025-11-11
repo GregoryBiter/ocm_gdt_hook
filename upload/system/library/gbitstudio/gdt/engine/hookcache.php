@@ -178,7 +178,7 @@ class HookCache {
         
         try {
             // Отримуємо реєстр для доступу до БД
-            $registry = \GbitStudio\GDT\Engine\GDT::registry();
+            $registry = \GbitStudio\GDT\Engine\Hook::getRegistry();
             
             if (!$registry->has('db')) {
                 return md5('no_db');

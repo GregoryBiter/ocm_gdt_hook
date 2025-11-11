@@ -15,10 +15,17 @@ final class Hook
     /**
      * Додає функцію до action-хука
      */
+
+    
     public static function add_action($hook_name, $callback, $priority = 10, $accepted_args = 1)
     {
         // 
         self::add_hook('action', $hook_name, $callback, $priority, $accepted_args);
+    }
+
+    public static function getRegistry()
+    {
+        return self::$registry;
     }
 
     /**

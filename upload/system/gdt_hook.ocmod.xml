@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <modification>
-    <name>Global Registry Access</name>
-    <code>global_registry_access</code>
-    <version>1.0</version>
-    <author>Your Name</author>
-    <link>https://yourwebsite.com</link>
+    <name>GDT Hook System</name>
+    <code>gdt_hook_system</code>
+    <version>1.1</version>
+    <author>GbitStudio</author>
+    <link>https://gbit-studio.com</link>
     <file path="system/engine/registry.php">
 
         <operation>
@@ -23,19 +23,6 @@ if (is_file(DIR_SYSTEM . 'library/gbitstudio/gdt/engine/hookcache.php')) {
         </operation>
 
     </file>
-
-
-    <!-- <file path="admin/controller/startup/router.php">
-        <operation>
-            <search><![CDATA[public function index() {]]></search>
-<add position="after"><![CDATA[
-        // роутинг
-        $routeGDT = new \Gbitstudio\GDT\Engine\Route($this->registry);
-        $routeGDT->router();
-            ]]></add>
-</operation>
-</file> -->
-    <!-- ########################################################################### -->
 
     <!-- Загружаем хуки GDT -->
     <file path="admin/controller/startup/startup.php">
@@ -89,30 +76,6 @@ if (is_file(DIR_SYSTEM . 'library/gbitstudio/gdt/engine/hookcache.php')) {
             ]]>            </add>
         </operation>
     </file>
-
-    <!-- <file path="system/engine/event.php">
-        <operation>
-            <search><![CDATA[foreach ($this->data as $value) {]]></search>
-            <add position="before"><![CDATA[
-        //OCMOD GDT Hook - Триггерим событие через систему хуков с передачей по ссылке
-        \GbitStudio\GDT\Engine\Hook::trigger_oc_event($event, $args);
-        //OCMOD GDT Hook
-
-            ]]>            </add>
-        </operation>
-
-        <operation>
-            <search><![CDATA[$result = $value['action']->execute($this->registry, $args);]]></search>
-            <add position="after"><![CDATA[
-        //OCMOD GDT Hook - Триггерим событие после выполнения с передачей по ссылке
-        \GbitStudio\GDT\Engine\Hook::trigger_oc_event($event . '_after', $args, $result);
-        //OCMOD GDT Hook
-
-            ]]>            </add>
-        </operation>
-
-    </file> -->
-
 
     <!-- add_route -->
     <file path="admin/controller/startup/router.php">
