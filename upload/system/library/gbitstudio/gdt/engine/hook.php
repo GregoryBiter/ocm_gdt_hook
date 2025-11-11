@@ -1,7 +1,12 @@
 <?php
 namespace GbitStudio\GDT\Engine;
+
+use Registry;
+
 final class Hook
 {
+
+    public static $registry;
     private static $actions = [];
     private static $filters = [];
 
@@ -12,6 +17,7 @@ final class Hook
      */
     public static function add_action($hook_name, $callback, $priority = 10, $accepted_args = 1)
     {
+        // 
         self::add_hook('action', $hook_name, $callback, $priority, $accepted_args);
     }
 
@@ -41,8 +47,112 @@ final class Hook
 
 
     /**
-     * Регистрирует обработчик события OpenCart
-     *
+     * Регистрирует обработчик на встроенное событие OpenCart
+     * Позволяет вешать свои callback на любые события OpenCart через систему хуков
+     * Callback получает аргументы по ссылке, что позволяет модифицировать их
+     * 
+     * @param string $event_name Название встроенного события OpenCart (например, 'admin/view/common/column_left/before')
+     * @param callable $callback Функция обработчик, получает аргументы по ссылке
+     * @param int $priority Приоритет выполнения (чем меньше число, тем раньше выполнится)
+     * 
+     * Пример использования:
+     * Hook::register_event('admin/view/common/column_left/before', function(&$route, &$data) {
+     *     // Модифицируем данные напрямую
+     *     $data['custom_field'] = 'value';
+     * });
+     */
+    public static function register_event($event_name, $callback, $priority = 10)
+    {
+        // Проверяем что реестр инициализирован
+        if (self::$registry === null) {
+            return;
+        }
+        
+        $registry = self::$registry;
+        
+        // Проверяем что event система доступна
+        if (!$registry->has('event')) {
+            return;
+        }
+
+        $registry->get('event')->register(
+            $event_name,
+            new \Action($callback),
+            $priority
+        );
+        return true;
+    }
+
+    /**
+     * Триггерит встроенное событие OpenCart через систему хуков
+     * Используется в OCMOD для интеграции встроенных событий с системой хуков
+     * Передает аргументы по ссылке, что позволяет callback-ам модифицировать их
+     * 
+     * @param string $event_name Название события OpenCart
+     * @param mixed &...$args Аргументы по ссылке для передачи в callback
+     * @return void
+     */
+    public static function trigger_oc_event($event_name, &...$args)
+    {
+        // Проверяем что реестр инициализирован
+        if (self::$registry === null) {
+            return;
+        }
+        
+        $registry = self::$registry;
+        
+        // Проверяем что event система доступна
+        if (!$registry->has('event')) {
+            return;
+        }
+        
+        // Формируем имя action-хука
+        $hook_name = 'oc_event_' . str_replace('/', '_', $event_name);
+        
+        // Запускаем action с аргументами по ссылке
+        // self::do_action_ref($hook_name, $args);
+
+        $registry->get('event')->trigger(
+            $event_name,
+            $args
+        );
+    }
+
+    /**
+     * Выполняет action хук с передачей аргументов по ссылке
+     * Внутренний метод для поддержки trigger_oc_event
+     * 
+     * @param string $hook_name Название хука
+     * @param array &$args Массив аргументов по ссылке
+     * @return void
+     */
+    private static function do_action_ref($hook_name, &$args)
+    {
+        if (!isset(self::$actions[$hook_name])) {
+            return;
+        }
+
+        ksort(self::$actions[$hook_name]);
+
+        foreach (self::$actions[$hook_name] as $priority => $callbacks) {
+            foreach ($callbacks as $hook) {
+                $function = $hook['function'];
+                $accepted = $hook['accepted_args'];
+
+                // Берем только нужное количество аргументов
+                $callback_args = array_slice($args, 0, $accepted);
+
+                // Вызываем callback с аргументами по ссылке
+                // Используем call_user_func_array с массивом ссылок
+                call_user_func_array($function, $callback_args);
+            }
+        }
+    }
+
+    /**
+     * Старый метод для совместимости - регистрирует обработчик события OpenCart напрямую
+     * 
+     * @deprecated Используйте register_event() для более удобной работы
      * @param string $trigger Триггер события (например, 'catalog/model/checkout/order/addOrder/after')
      * @param callable $callback Функция обработчик
      * @param int $priority Приоритет выполнения
@@ -50,10 +160,10 @@ final class Hook
     public static function add_event($trigger, $callback, $priority = 0)
     {
         try {
-            $registry = \GbitStudio\GDT\Engine\GDT::registry();
+            $registry = self::$registry;
 
             if (!$registry->has('event')) {
-                \GbitStudio\GDT\Engine\GDT::logWrite("Event system not available in registry");
+                $registry->get('log')->write("Event system not available in registry");
                 return false;
             }
 
@@ -79,7 +189,7 @@ final class Hook
             return $event_id;
 
         } catch (\Exception $e) {
-            \GbitStudio\GDT\Engine\GDT::logWrite("Error registering event {$trigger}: " . $e->getMessage());
+            self::$registry->get('log')->write("Error registering event {$trigger}: " . $e->getMessage());
             return false;
         }
     }
@@ -93,7 +203,7 @@ final class Hook
     public static function remove_event($trigger, $callback)
     {
         try {
-            $registry = \GbitStudio\GDT\Engine\GDT::registry();
+            $registry = self::$registry;
 
             if (!$registry->has('event')) {
                 return false;
@@ -123,7 +233,7 @@ final class Hook
             return true;
 
         } catch (\Exception $e) {
-            \GbitStudio\GDT\Engine\GDT::logWrite("Error removing event {$trigger}: " . $e->getMessage());
+            self::$registry->get('log')->write("Error removing event {$trigger}: " . $e->getMessage());
             return false;
         }
     }
@@ -138,7 +248,7 @@ final class Hook
     public static function trigger_event($event, $args = [])
     {
         try {
-            $registry = \GbitStudio\GDT\Engine\GDT::registry();
+            $registry = self::$registry;
 
             if (!$registry->has('event')) {
                 return null;
@@ -148,7 +258,7 @@ final class Hook
             return $event_system->trigger($event, $args);
 
         } catch (\Exception $e) {
-            \GbitStudio\GDT\Engine\GDT::logWrite("Error triggering event {$event}: " . $e->getMessage());
+            self::$registry->get('log')->write("Error triggering event {$event}: " . $e->getMessage());
             return null;
         }
     }
@@ -203,6 +313,8 @@ final class Hook
             $target = &self::$filters;
         }
 
+
+
         if (!isset($target[$hook_name])) {
             return $type === 'filter' ? $value : null;
         }
@@ -247,101 +359,199 @@ final class Hook
         self::$filters = [];
     }
 
-    public static function load()
+    public static function load(Registry $registry)
     {
+        self::$registry = $registry;
+
+        $registry->set('hook', self);
+        // Подключаем класс кеша
+        require_once(DIR_SYSTEM . 'library/gbitstudio/gdt/engine/hookcache.php');
+
         // Определяем текущую среду (admin или catalog)
         $is_admin = defined('DIR_CATALOG');
 
         if ($is_admin) {
             $base_dir = constant('DIR_APPLICATION');
         } else {
-            $base_dir = constant('DIR_CATALOG');
+            $base_dir = constant('DIR_APPLICATION');
         }
 
-        // Загружаем хуки из соответствующей директории
-        $hook_dir = $base_dir . 'controller/hook/';
+        // Пытаемся загрузить из кеша
+        $cached_hooks = HookCache::get();
 
-        if (is_dir($hook_dir)) {
-            $hook_files = glob($hook_dir . '*.php');
+        if ($cached_hooks !== null) {
+            // Загружаем хуки из кеша
+            self::loadHooksFromCache($cached_hooks);
+            self::do_action('gdt_hook_loaded');
+            return;
+        }
 
-            foreach ($hook_files as $hook_file) {
-                $hook_name = basename($hook_file, '.php');
+        // Кеш недействителен, сканируем заново
+        $hooks_to_cache = [];
 
-                // Проверяем, активен ли модуль
-                if (self::isModuleActive($hook_name)) {
-                    self::loadHookController($hook_file, $hook_name, $is_admin);
+        // 2. Загружаем hook_boot из всех установленных расширений
+        $extension_hooks = self::scanExtensionsForHooks($is_admin, $base_dir);
+
+        foreach ($extension_hooks as $hook_data) {
+            $hooks_to_cache[] = $hook_data;
+        }
+        // Сохраняем в кеш
+        HookCache::set($hooks_to_cache);
+
+    }
+
+    /**
+     * Загружает хуки из кеша
+     */
+    private static function loadHooksFromCache($cached_hooks)
+    {
+        foreach ($cached_hooks as $hook_data) {
+            if ($hook_data['type'] === 'extension') {
+                // Новая система hook_boot из расширений
+                if (is_file($hook_data['path'])) {
+                    self::loadExtensionHookBoot($hook_data, false);
                 }
             }
         }
     }
 
     /**
-     * Загружает и инициализирует контроллер хука
+     * Сканирует все установленные расширения на наличие метода hook_boot
+     * 
+     * @param bool $is_admin Флаг админской части
+     * @param string $base_dir Базовая директория
+     * @return array Массив найденных хуков
      */
-    private static function loadHookController($hook_file, $hook_name, $is_admin)
+    private static function scanExtensionsForHooks($is_admin, $base_dir)
     {
+        $hooks = [];
+
         try {
-            // Подключаем файл хука
-            require_once($hook_file);
+            // Получаем реестр для доступа к БД
+            $registry = self::$registry;
 
-            // Формируем имя класса в стиле OpenCart
-            $class_name = 'ControllerHook' . str_replace('_', '', ucwords($hook_name, '_'));
-
-            if (!class_exists($class_name)) {
-                \GbitStudio\GDT\Engine\GDT::logWrite("Hook class not found: {$class_name} in file {$hook_file}");
-                return;
+            if (!$registry->has('db')) {
+                return $hooks;
             }
 
-            // Получаем реестр OpenCart
-            $registry = \GbitStudio\GDT\Engine\GDT::registry();
+            $db = $registry->get('db');
 
-            // Создаем экземпляр контроллера хука
-            $hook_controller = new $class_name($registry);
+            // Получаем все установленные расширения из БД
+            $query = $db->query("SELECT `type`, `code` FROM `" . DB_PREFIX . "extension` ORDER BY `type`, `code`");
 
-            // Проверяем, что это действительно контроллер хука
-            if (!($hook_controller instanceof \GbitStudio\GDT\Engine\HookController)) {
-                \GbitStudio\GDT\Engine\GDT::logWrite("Invalid hook controller: {$class_name} must extend HookController");
-                return;
+            foreach ($query->rows as $extension) {
+                $type = $extension['type'];
+                $code = $extension['code'];
+
+                // Путь к контроллеру: controller/extension/{type}/{code}.php
+                $controller_path = $base_dir . 'controller/extension/' . $type . '/' . $code . '.php';
+
+                if (!is_file($controller_path)) {
+                    continue;
+                }
+
+
+                // Пытаемся загрузить контроллер и проверить наличие метода
+                $hook_data = [
+                    'type' => 'extension',
+                    'extension_type' => $type,
+                    'extension_code' => $code,
+                    'path' => $controller_path,
+                    'route' => 'extension/' . $type . '/' . $code
+                ];
+                
+
+                // Проверяем наличие метода hook_boot и сразу загружаем
+                if (self::loadExtensionHookBoot($hook_data, false)) {
+                    $hooks[] = $hook_data;
+                }
             }
-
-            // Вызываем метод boot для инициализации хука
-            $hook_controller->boot();
 
         } catch (\Exception $e) {
-            \GbitStudio\GDT\Engine\GDT::logWrite("Error loading hook {$hook_name}: " . $e->getMessage());
+            self::$registry->get('log')->write("Error scanning extensions for hooks: " . $e->getMessage());
+            echo "Error scanning extensions for hooks: " . $e->getMessage();
         }
+
+        return $hooks;
     }
 
     /**
-     * Проверяет, активен ли модуль
+     * Загружает и вызывает метод hook_boot из контроллера расширения
+     * 
+     * @param array $hook_data Данные о хуке
+     * @param bool $scan_mode Режим сканирования (только проверка наличия метода)
+     * @return bool true если метод hook_boot существует и был вызван
      */
-    private static function isModuleActive($module_code)
+    private static function loadExtensionHookBoot($hook_data, $scan_mode = false)
     {
         try {
-            // Получаем статус модуля из настроек
-            $config = \GbitStudio\GDT\Engine\GDT::config();
-            $status = $config->get('module_' . $module_code . '_status');
+            // Получаем реестр
+            $registry = self::$registry;
 
-            // Если статус не установлен, проверяем наличие в таблице extensions
-            if ($status === null) {
-                $db = \GbitStudio\GDT\Engine\GDT::db();
-                $query = $db->query("
-                    SELECT code 
-                    FROM `" . constant('DB_PREFIX') . "extension` 
-                    WHERE `type` = 'module' AND `code` = '" . $db->escape($module_code) . "'
-                ");
-
-                return $query->num_rows > 0;
+            // Формируем имя класса контроллера
+            $parts = explode('/', $hook_data['route']);
+            $class_name = 'Controller';
+            foreach ($parts as $part) {
+                $class_name .= str_replace('_', '', ucwords($part, '_'));
             }
 
-            return (bool) $status;
+            // Проверяем существование файла контроллера
+            if (!is_file($hook_data['path'])) {
+                return false;
+            }
+
+            // Подключаем файл контроллера
+            require_once($hook_data['path']);
+            
+
+            // Проверяем существование класса
+            if (!class_exists($class_name)) {
+                return false;
+            }
+
+            // Создаем экземпляр контроллера
+            $controller = new $class_name($registry);
+
+            // Проверяем наличие метода hook_boot через рефлексию
+            if (!method_exists($controller, 'hook_boot')) {
+                return false;
+            }
+
+            // Если режим сканирования - только проверяем наличие метода
+            if ($scan_mode) {
+                return true;
+            }
+
+            
+
+            // Проверяем что метод публичный
+            $reflection = new \ReflectionMethod($controller, 'hook_boot');
+
+            if (!$reflection->isPublic()) {
+                self::$registry->get('log')->write(
+                    "hook_boot method must be public in {$hook_data['route']}"
+                );
+                return false;
+            }
+
+            // Вызываем метод hook_boot
+            $controller->hook_boot();
+
+            self::$registry->get('log')->write(
+                "Loaded hook_boot from extension: {$hook_data['extension_type']}/{$hook_data['extension_code']}"
+            );
+
+            return true;
 
         } catch (\Exception $e) {
-            // В случае ошибки считаем модуль активным (для разработки)
-            return true;
+            if (!$scan_mode) {
+                self::$registry->get('log')->write(
+                    "Error loading hook_boot from {$hook_data['route']}: " . $e->getMessage()
+                );
+            }
+            return false;
         }
     }
-
 
 
 

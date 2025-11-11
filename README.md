@@ -658,3 +658,216 @@ $filters = Hook::getRegisteredFilters();
 ## Лицензия
 
 Модуль распространяется в соответствии с лицензией основного GDT Framework.
+
+---
+
+## НОВА ФУНКЦІОНАЛЬНІСТЬ: hook_boot() в розширеннях
+
+### Опис
+
+Починаючи з версії 2.0, система GDT Hook підтримує автоматичне виявлення та виконання методу `hook_boot()` у всіх встановлених розширеннях OpenCart. Це дозволяє розширенням реєструвати свої хуки безпосередньо в контролері розширення, без необхідності створювати окремі файли в `controller/hook/`.
+
+### Переваги
+
+- ✅ **Менше файлів**: Вся логіка модуля в одному файлі
+- ✅ **Автоматичне виявлення**: Система сама знаходить метод `hook_boot()` 
+- ✅ **Кешування**: Швидка ініціалізація завдяки файловому кешу
+- ✅ **Підтримка всіх типів розширень**: module, payment, shipping, dashboard, та інші
+- ✅ **Легке розповсюдження**: Один контролер містить всю функціональність
+
+### Як це працює
+
+1. При завантаженні системи Hook сканує всі встановлені розширення з БД
+2. Для кожного активного розширення перевіряється наявність методу `hook_boot()`
+3. Якщо метод знайдено - він викликається автоматично
+4. Результати зберігаються в кеш для швидкої ініціалізації наступного разу
+
+### Приклад використання
+
+Створіть розширення з методом `hook_boot()`:
+
+```php
+<?php
+// admin/controller/extension/module/my_module.php
+
+class ControllerExtensionModuleMyModule extends Controller {
+    
+    /**
+     * Метод hook_boot викликається автоматично при завантаженні системи
+     * якщо модуль встановлений та активований
+     */
+    public function hook_boot() {
+        // Реєстрація action хуків
+        \GbitStudio\GDT\Engine\Hook::add_action('admin_menu', [$this, 'addMenuItem']);
+        
+        // Реєстрація filter хуків
+        \GbitStudio\GDT\Engine\Hook::add_filter('product_price', [$this, 'modifyPrice'], 10, 2);
+        
+        // Реєстрація подій OpenCart
+        \GbitStudio\GDT\Engine\Hook::add_event(
+            'catalog/model/checkout/order/addOrder/after',
+            [$this, 'onOrderCreated']
+        );
+        
+        // Логування для відлагодження
+        \GbitStudio\GDT\Engine\GDT::logWrite('My Module: hook_boot initialized');
+    }
+    
+    public function addMenuItem() {
+        // Додати пункт меню
+    }
+    
+    public function modifyPrice($price, $product_data) {
+        // Модифікувати ціну
+        return $price * 1.1;
+    }
+    
+    public function onOrderCreated($route, &$args) {
+        // Обробити створення замовлення
+        $order_id = $args[0];
+    }
+    
+    // Стандартні методи OpenCart
+    public function index() {
+        // Відображення модуля
+    }
+    
+    public function install() {
+        // Очищаємо кеш для застосування змін
+        if (class_exists('\GbitStudio\GDT\Engine\HookCache')) {
+            \GbitStudio\GDT\Engine\HookCache::clear();
+        }
+    }
+    
+    public function uninstall() {
+        // Очищаємо кеш при видаленні
+        if (class_exists('\GbitStudio\GDT\Engine\HookCache')) {
+            \GbitStudio\GDT\Engine\HookCache::clear();
+        }
+    }
+}
+```
+
+### Робота з кешем
+
+Система автоматично кешує знайдені `hook_boot()` методи для швидкої ініціалізації:
+
+```php
+// Інформація про кеш
+$info = \GbitStudio\GDT\Engine\HookCache::getInfo();
+/*
+Array (
+    [exists] => true
+    [path] => /path/to/storage/cache/hook/hook_boot_cache.php
+    [size] => 1234
+    [created] => 2025-11-11 15:30:00
+    [hooks_count] => 5
+    [valid] => true
+)
+*/
+
+// Очистити кеш вручну
+\GbitStudio\GDT\Engine\HookCache::clear();
+```
+
+Кеш автоматично оновлюється якщо:
+- Минула більше 1 години з останнього оновлення
+- Змінилися файли контролерів розширень
+- Встановлено або видалено розширення
+
+### Підтримувані типи розширень
+
+Метод `hook_boot()` підтримується для всіх типів розширень OpenCart:
+
+- ✅ `module` - Модулі
+- ✅ `payment` - Способи оплати
+- ✅ `shipping` - Способи доставки
+- ✅ `total` - Підсумки замовлення
+- ✅ `dashboard` - Віджети панелі
+- ✅ `currency` - Валюти
+- ✅ `advertise` - Реклама
+- ✅ та інші
+
+### Налагодження
+
+Для перевірки чи спрацював `hook_boot()`, перевірте лог OpenCart:
+
+```
+system/storage/logs/error.log
+```
+
+Повинні бути записи:
+```
+[GDT Hook] Loaded hook_boot from extension: module/my_module
+```
+
+### Міграція зі старої системи
+
+**Раніше (старий підхід):**
+```
+admin/controller/hook/my_module.php  ← окремий файл хука
+admin/controller/extension/module/my_module.php  ← основний контролер
+```
+
+**Тепер (новий підхід):**
+```
+admin/controller/extension/module/my_module.php  ← все в одному файлі
+```
+
+Для міграції:
+1. Скопіюйте код з `controller/hook/my_module.php`
+2. Додайте метод `hook_boot()` в основний контролер
+3. Перемістіть логіку ініціалізації в `hook_boot()`
+4. Видаліть старий файл з `controller/hook/`
+5. Очистіть кеш: `HookCache::clear()`
+
+### Приклади
+
+Повний приклад розширення з `hook_boot()` дивіться в:
+```
+example/upload/admin/controller/extension/module/example_hook.php
+```
+
+### API Reference для hook_boot
+
+#### Доступ до реєстру
+```php
+$config = \GbitStudio\GDT\Engine\GDT::config();
+$db = \GbitStudio\GDT\Engine\GDT::db();
+$request = \GbitStudio\GDT\Engine\GDT::request();
+```
+
+#### Логування
+```php
+\GbitStudio\GDT\Engine\GDT::logWrite('My log message');
+```
+
+#### Хуки
+```php
+// Action хуки
+\GbitStudio\GDT\Engine\Hook::add_action($name, $callback, $priority, $args);
+\GbitStudio\GDT\Engine\Hook::do_action($name, ...$args);
+
+// Filter хуки
+\GbitStudio\GDT\Engine\Hook::add_filter($name, $callback, $priority, $args);
+\GbitStudio\GDT\Engine\Hook::apply_filters($name, $value, ...$args);
+
+// Події OpenCart
+\GbitStudio\GDT\Engine\Hook::add_event($trigger, $callback, $priority);
+```
+
+### Часті питання
+
+**Q: Чи потрібно вручну викликати hook_boot()?**
+A: Ні, система викликає його автоматично для всіх активних розширень.
+
+**Q: Чи працює hook_boot() в catalog (frontend)?**
+A: Так, працює як в admin, так і в catalog частинах.
+
+**Q: Що робити якщо хуки не працюють?**
+A: 1) Перевірте чи активовано розширення, 2) Очистіть кеш модифікацій, 3) Очистіть HookCache::clear()
+
+**Q: Чи можна використовувати і старий підхід (controller/hook/) і hook_boot()?**
+A: Так, обидва підходи працюють одночасно.
+
+````
