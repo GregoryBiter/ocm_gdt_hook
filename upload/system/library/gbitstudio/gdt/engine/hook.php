@@ -457,7 +457,6 @@ final class Hook
                     continue;
                 }
 
-
                 // Пытаемся загрузить контроллер и проверить наличие метода
                 $hook_data = [
                     'type' => 'extension',
@@ -514,9 +513,6 @@ final class Hook
         if (!$has_hook_boot) {
             return false;
         }
-
-
-
             // Подключаем файл контроллера
             if (!class_exists($class_name)) {
                 require_once($hook_data['path']);
@@ -541,8 +537,6 @@ final class Hook
                 return true;
             }
 
-            
-
             // Проверяем что метод публичный
             $reflection = new \ReflectionMethod($controller, 'hook_boot');
 
@@ -555,10 +549,6 @@ final class Hook
 
             // Вызываем метод hook_boot
             $controller->hook_boot();
-
-            self::$registry->get('log')->write(
-                "Loaded hook_boot from extension: {$hook_data['extension_type']}/{$hook_data['extension_code']}"
-            );
 
             return true;
 
