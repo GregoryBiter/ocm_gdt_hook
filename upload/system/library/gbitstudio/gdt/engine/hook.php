@@ -370,7 +370,7 @@ final class Hook
     {
         self::$registry = $registry;
 
-        $registry->set('hook', self);
+        $registry->set('hook', Hook::class);
         // Подключаем класс кеша
         require_once(DIR_SYSTEM . 'library/gbitstudio/gdt/engine/hookcache.php');
 
@@ -507,8 +507,20 @@ final class Hook
                 return false;
             }
 
+        // Проверяем наличие метода hook_boot через регулярное выражение
+        $file_content = file_get_contents($hook_data['path']);
+        $has_hook_boot = preg_match('/function\s+hook_boot\s*\(/', $file_content);
+
+        if (!$has_hook_boot) {
+            return false;
+        }
+
+
+
             // Подключаем файл контроллера
-            require_once($hook_data['path']);
+            if (!class_exists($class_name)) {
+                require_once($hook_data['path']);
+            }
             
 
             // Проверяем существование класса
