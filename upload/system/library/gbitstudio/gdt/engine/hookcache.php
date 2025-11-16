@@ -189,8 +189,9 @@ class HookCache {
             // Отримуємо всі розширення з БД
             $query = $db->query("SELECT `type`, `code` FROM `" . DB_PREFIX . "extension` ORDER BY `type`, `code`");
             
+            // Определяем директорию: если определен DIR_CATALOG - мы в admin, иначе - в catalog
             $is_admin = defined('DIR_CATALOG');
-            $base_dir = $is_admin ? constant('DIR_APPLICATION') : constant('DIR_CATALOG');
+            $base_dir = $is_admin ? DIR_APPLICATION : DIR_APPLICATION;
             
             foreach ($query->rows as $extension) {
                 $type = $extension['type'];
