@@ -5,12 +5,14 @@ use Registry;
 
 final class Hook
 {
+    use Event;
 
     public static $registry;
     private static $actions = [];
     private static $filters = [];
 
     private static $events = []; // Для хранения зарегистрированных событий
+    private static $callable_storage = []; // Хранилище для callable callbacks
 
     /**
      * Додає функцію до action-хука
@@ -26,6 +28,16 @@ final class Hook
     public static function getRegistry()
     {
         return self::$registry;
+    }
+
+    /**
+     * Устанавливает реестр в Hook (для инициализации в самом начале)
+     *
+     * @param Registry $registry Реестр приложения
+     */
+    public static function setRegistry($registry)
+    {
+        self::$registry = $registry;
     }
 
     /**
@@ -51,236 +63,6 @@ final class Hook
     {
         return self::run_hooks('filter', $hook_name, $value, ...$args);
     }
-
-
-    /**
-     * Регистрирует обработчик на встроенное событие OpenCart
-     * Позволяет вешать свои callback на любые события OpenCart через систему хуков
-     * Callback получает аргументы по ссылке, что позволяет модифицировать их
-     * 
-     * @param string $event_name Название встроенного события OpenCart (например, 'admin/view/common/column_left/before')
-     * @param callable $callback Функция обработчик, получает аргументы по ссылке
-     * @param int $priority Приоритет выполнения (чем меньше число, тем раньше выполнится)
-     * 
-     * Пример использования:
-     * Hook::register_event('admin/view/common/column_left/before', function(&$route, &$data) {
-     *     // Модифицируем данные напрямую
-     *     $data['custom_field'] = 'value';
-     * });
-     */
-    public static function register_event($event_name, $callback, $priority = 10)
-    {
-        // Проверяем что реестр инициализирован
-        if (self::$registry === null) {
-            return;
-        }
-        
-        $registry = self::$registry;
-        
-        // Проверяем что event система доступна
-        if (!$registry->has('event')) {
-            return;
-        }
-
-        $registry->get('event')->register(
-            $event_name,
-            new \Action($callback),
-            $priority
-        );
-        return true;
-    }
-
-    /**
-     * Триггерит встроенное событие OpenCart через систему хуков
-     * Используется в OCMOD для интеграции встроенных событий с системой хуков
-     * Передает аргументы по ссылке, что позволяет callback-ам модифицировать их
-     * 
-     * @param string $event_name Название события OpenCart
-     * @param mixed &...$args Аргументы по ссылке для передачи в callback
-     * @return void
-     */
-    public static function trigger_oc_event($event_name, &...$args)
-    {
-        // Проверяем что реестр инициализирован
-        if (self::$registry === null) {
-            return;
-        }
-        
-        $registry = self::$registry;
-        
-        // Проверяем что event система доступна
-        if (!$registry->has('event')) {
-            return;
-        }
-        
-        // Формируем имя action-хука
-        $hook_name = 'oc_event_' . str_replace('/', '_', $event_name);
-        
-        // Запускаем action с аргументами по ссылке
-        // self::do_action_ref($hook_name, $args);
-
-        $registry->get('event')->trigger(
-            $event_name,
-            $args
-        );
-    }
-
-    /**
-     * Выполняет action хук с передачей аргументов по ссылке
-     * Внутренний метод для поддержки trigger_oc_event
-     * 
-     * @param string $hook_name Название хука
-     * @param array &$args Массив аргументов по ссылке
-     * @return void
-     */
-    private static function do_action_ref($hook_name, &$args)
-    {
-        if (!isset(self::$actions[$hook_name])) {
-            return;
-        }
-
-        ksort(self::$actions[$hook_name]);
-
-        foreach (self::$actions[$hook_name] as $priority => $callbacks) {
-            foreach ($callbacks as $hook) {
-                $function = $hook['function'];
-                $accepted = $hook['accepted_args'];
-
-                // Берем только нужное количество аргументов
-                $callback_args = array_slice($args, 0, $accepted);
-
-                // Вызываем callback с аргументами по ссылке
-                // Используем call_user_func_array с массивом ссылок
-                call_user_func_array($function, $callback_args);
-            }
-        }
-    }
-
-    /**
-     * Старый метод для совместимости - регистрирует обработчик события OpenCart напрямую
-     * 
-     * @deprecated Используйте register_event() для более удобной работы
-     * @param string $trigger Триггер события (например, 'catalog/model/checkout/order/addOrder/after')
-     * @param callable $callback Функция обработчик
-     * @param int $priority Приоритет выполнения
-     */
-    public static function add_event($trigger, $callback, $priority = 0)
-    {
-        try {
-            $registry = self::$registry;
-
-            if (!$registry->has('event')) {
-                $registry->get('log')->write("Event system not available in registry");
-                return false;
-            }
-
-            $event = $registry->get('event');
-
-            // Создаем уникальный ID для события
-            $event_id = 'hook_' . uniqid();
-
-            // Создаем Action объект
-            $action = new \Action($callback);
-
-            // Регистрируем событие
-            $event->register($trigger, $action, $priority);
-
-            // Сохраняем для возможности удаления
-            self::$events[] = [
-                'trigger' => $trigger,
-                'callback' => $callback,
-                'priority' => $priority,
-                'id' => $event_id
-            ];
-
-            return $event_id;
-
-        } catch (\Exception $e) {
-            self::$registry->get('log')->write("Error registering event {$trigger}: " . $e->getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Удаляет обработчик события OpenCart
-     *
-     * @param string $trigger Триггер события
-     * @param callable $callback Функция обработчик
-     */
-    public static function remove_event($trigger, $callback)
-    {
-        try {
-            $registry = self::$registry;
-
-            if (!$registry->has('event')) {
-                return false;
-            }
-
-            $event = $registry->get('event');
-
-            // Формируем route для Action
-            if (is_array($callback)) {
-                $route = get_class($callback[0]) . '/' . $callback[1];
-            } elseif (is_string($callback)) {
-                $route = $callback;
-            } else {
-                $route = 'anonymous_' . spl_object_hash($callback);
-            }
-
-            $event->unregister($trigger, $route);
-
-            // Удаляем из нашего списка
-            foreach (self::$events as $key => $event_data) {
-                if ($event_data['trigger'] === $trigger && $event_data['callback'] === $callback) {
-                    unset(self::$events[$key]);
-                    break;
-                }
-            }
-
-            return true;
-
-        } catch (\Exception $e) {
-            self::$registry->get('log')->write("Error removing event {$trigger}: " . $e->getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Запускает событие OpenCart
-     *
-     * @param string $event Название события
-     * @param array $args Аргументы для передачи
-     * @return mixed
-     */
-    public static function trigger_event($event, $args = [])
-    {
-        try {
-            $registry = self::$registry;
-
-            if (!$registry->has('event')) {
-                return null;
-            }
-
-            $event_system = $registry->get('event');
-            return $event_system->trigger($event, $args);
-
-        } catch (\Exception $e) {
-            self::$registry->get('log')->write("Error triggering event {$event}: " . $e->getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Получает список зарегистрированных событий
-     *
-     * @return array
-     */
-    public static function get_events()
-    {
-        return self::$events;
-    }
-
-
 
     /**
      * Реєстрація callback-функції
@@ -377,12 +159,10 @@ final class Hook
         // Определяем текущую среду (admin или catalog)
         $is_admin = defined('DIR_CATALOG');
 
-        if ($is_admin) {
-            $base_dir = constant('DIR_APPLICATION');
-        } else {
-            $base_dir = constant('DIR_APPLICATION');
-        }
+        // DIR_APPLICATION определяется в обеих средах (admin и catalog)
+        $base_dir = DIR_APPLICATION;
 
+        $registry->get('load')->controller('startup/hook');
         // Пытаемся загрузить из кеша
         $cached_hooks = HookCache::get();
 
@@ -615,8 +395,62 @@ final class Hook
         return array_keys(self::$global_methods);
     }
 
+    /**
+     * Сохраняет callable в хранилище с ключом event_name
+     *
+     * @param string $event_name Название события
+     * @param callable $callback Функция для сохранения
+     * @return string ID callback
+     */
+    public static function store_callable($event_name, $callback)
+    {
+        if (!isset(self::$callable_storage[$event_name])) {
+            self::$callable_storage[$event_name] = [];
+        }
+        
+        // Генерируем уникальный ID для callback
+        $callback_id = 'cb_' . uniqid() . '_' . mt_rand();
+        
+        // Сохраняем callback в массив для данного события
+        self::$callable_storage[$event_name][] = [
+            'id' => $callback_id,
+            'callback' => $callback
+        ];
+        
+        return $callback_id;
+    }
 
+    /**
+     * Вызывает все сохраненные callable для события
+     *
+     * @param string $event_name Название события
+     * @param mixed &...$args Аргументы
+     * @return void
+     */
+    public static function invoke_stored_for_event($event_name, &...$args)
+    {
+        if (!isset(self::$callable_storage[$event_name])) {
+            return;
+        }
 
+        foreach (self::$callable_storage[$event_name] as $item) {
+            $callback = $item['callback'];
+            call_user_func_array($callback, $args);
+        }
+    }
 
-
+    /**
+     * Удаляет все callable для события
+     *
+     * @param string $event_name Название события
+     * @return bool
+     */
+    public static function remove_stored_for_event($event_name)
+    {
+        if (isset(self::$callable_storage[$event_name])) {
+            unset(self::$callable_storage[$event_name]);
+            return true;
+        }
+        return false;
+    }
 }
